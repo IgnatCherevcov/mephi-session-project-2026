@@ -1,0 +1,85 @@
+set -uo pipefail
+NUM="${1:?usage: bash session-project.sh STUDENT_NUMBER}"
+OUT="$HOME/session-project"
+mkdir -p "$OUT"
+exec > >(tee "$OUT/run.log") 2>&1
+sudo -v || exit 1
+CON="$(nmcli -t -f NAME,DEVICE con show --active | grep -v ':lo$' | head -1 | cut -d: -f1)"
+[ -n "$CON" ] && sudo nmcli con mod "$CON" ipv4.method auto
+sudo hostnamectl set-hostname mephi-2026.domain.local
+ping -c 4 8.8.8.8 > "$OUT/ping.out" 2>&1
+sudo dnf -y update
+sudo dnf -y install nginx libcap-ng-utils acl policycoreutils-python-utils
+sudo dnf -y download tcpdump --destdir /tmp
+sudo rpm -Uvh --replacepkgs /tmp/tcpdump-*.rpm
+sudo dnf history > "$OUT/dnf.out" 2>&1
+DISK=/dev/sdb
+if [ ! -b "$DISK" ]; then
+  echo "ERROR: $DISK not found, add a second disk in VirtualBox"
+elif lsblk -no MOUNTPOINT "$DISK" | grep -q . ; then
+  echo "ERROR: $DISK is in use, skipping"
+elif [ "$(lsblk -no NAME "$DISK" | wc -l)" -eq 1 ]; then
+  sudo parted -s "$DISK" mklabel gpt mkpart primary ext4 0% 100%
+  sudo partprobe "$DISK"; sleep 3
+  sudo mkfs.ext4 -F -L MEPHI_WEB "${DISK}1"
+fi
+sudo mkdir -p /mephi-web
+grep -q '^LABEL=MEPHI_WEB' /etc/fstab || echo 'LABEL=MEPHI_WEB /mephi-web ext4 defaults 0 2' | sudo tee -a /etc/fstab >/dev/null
+sudo systemctl daemon-reload
+mountpoint -q /mephi-web || sudo mount /mephi-web
+getent group curators >/dev/null || sudo groupadd -g 4444 curators
+getent group mephidev >/dev/null || sudo groupadd mephidev
+i=5501
+for u in user1 user2 user3; do
+  if id "$u" >/dev/null 2>&1; then
+    [ "$(id -u "$u")" = "$i" ] || sudo usermod -u "$i" "$u"
+    sudo usermod -aG mephidev "$u"
+  else
+    sudo useradd -u "$i" -m -G mephidev "$u"
+  fi
+  i=$((i+1))
+done
+for c in curator1 curator2; do
+  id "$c" >/dev/null 2>&1 || sudo useradd -m -g curators "$c"
+done
+sudo mkdir -p /data/mephi-2026
+sudo chown root:mephidev /data/mephi-2026
+sudo chmod 2770 /data/mephi-2026
+sudo setfacl -m g:mephidev:rwx,g:curators:rx,o::--- /data/mephi-2026
+sudo setfacl -d -m g:mephidev:rwx,g:curators:rx,o::--- /data/mephi-2026
+TCPD="$(readlink -f /usr/sbin/tcpdump)"
+sudo chmod u-s "$TCPD"
+sudo setcap cap_net_raw,cap_net_admin=eip "$TCPD"
+getcap /usr/sbin/tcpdump > "$OUT/getcap.out"
+( ping -c 3 127.0.0.1 >/dev/null 2>&1 & )
+sudo -u user1 timeout 10 tcpdump -nn -i lo -c 2 > "$OUT/tcpdump-test.out" 2>&1
+echo "tcpdump rc=$?" >> "$OUT/tcpdump-test.out"
+sudo sed -i -E 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS   90/' /etc/login.defs
+for u in user1 user2 user3 curator1 curator2; do sudo chage -M 90 "$u"; done
+sudo sed -i -E 's/^#? *minlen *=.*/minlen = 12/' /etc/security/pwquality.conf
+grep -q '^minlen = 12' /etc/security/pwquality.conf || echo 'minlen = 12' | sudo tee -a /etc/security/pwquality.conf >/dev/null
+grep -q 'pam_access' /etc/pam.d/login || sudo sed -i '0,/^account/s//account    required     pam_access.so\naccount/' /etc/pam.d/login
+grep -q '^-:(curators):LOCAL' /etc/security/access.conf || printf -- '-:(curators):LOCAL\n+:ALL:ALL\n' | sudo tee -a /etc/security/access.conf >/dev/null
+sudo setenforce 1
+sudo sed -i 's/^SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config
+getenforce > "$OUT/getenforce.out"
+echo "Hello from Student: $NUM" | sudo tee /mephi-web/index.html >/dev/null
+sudo chmod 644 /mephi-web/index.html
+sudo semanage fcontext -a -t httpd_sys_content_t '/mephi-web(/.*)?'
+sudo restorecon -R /mephi-web
+sudo sed -i 's|root[[:space:]]\+/usr/share/nginx/html;|root /mephi-web;|' /etc/nginx/nginx.conf
+sudo nginx -t
+sudo systemctl enable nginx
+sudo systemctl restart nginx
+sleep 2
+sudo journalctl -u nginx -b > "$OUT/journalctl.out"
+curl http://localhost/ > "$OUT/curl.out"
+stat /data/mephi-2026 > "$OUT/stat.out"
+stat /mephi-web >> "$OUT/stat.out"
+ls -dZ /mephi-web /mephi-web/index.html >> "$OUT/stat.out"
+cp /etc/fstab /etc/passwd /etc/group /etc/security/pwquality.conf "$OUT/"
+sudo awk -F: 'BEGIN{OFS=":"} $2 !~ /^[!*]/ {$2="[REDACTED]"} {print}' /etc/shadow > "$OUT/shadow"
+grep -v '^#' "$0" | grep -v '^$' > "$OUT/history.out"
+echo "=== Complete ==="
+cat "$OUT/curl.out" "$OUT/getenforce.out" "$OUT/getcap.out"
+tail -n 3 "$OUT/tcpdump-test.out"

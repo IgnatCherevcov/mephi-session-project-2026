@@ -1,0 +1,36 @@
+Updating and loading repositories:
+Repositories loaded.
+Nothing to do.
+Updating and loading repositories:
+Repositories loaded.
+Package "nginx-2:1.30.6-2.fc44.x86_64" is already installed.
+Package "libcap-ng-utils-0.9.6-1.fc44.x86_64" is already installed.
+Package "acl-2.4.0-1.fc44.x86_64" is already installed.
+Package "policycoreutils-python-utils-3.11-2.fc44.noarch" is already installed.
+
+Nothing to do.
+Updating and loading repositories:
+Repositories loaded.
+Downloading Packages:
+ tcpdump-14:4.99.6-3.fc44.x86_64        100% |   0.0   B/s |   0.0   B |  00m00s
+>>> Already downloaded
+Verifying...                          ########################################
+Preparing...                          ########################################
+Updating / installing...
+tcpdump-14:4.99.6-3.fc44              ########################################
+Cleaning up / removing...
+tcpdump-14:4.99.6-3.fc44              ########################################
+ERROR: /dev/sdb is in use, skipping
+File context for /mephi-web(/.*)? already defined, modifying instead
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+  % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
+                                 Dload  Upload  Total   Spent   Left   Speed
+  0      0   0      0   0      0      0      0                              0100     28 100     28   0      0  14184      0                              0100     28 100     28   0      0  13377      0                              0100     28 100     28   0      0  12053      0                              0
+=== Complete ===
+Hello from Student: M265985
+Enforcing
+/usr/sbin/tcpdump cap_net_admin,cap_net_raw=eip
+4 packets received by filter
+0 packets dropped by kernel
+tcpdump rc=0
